@@ -1,0 +1,21 @@
+= Postgres
+:author: Maciej Florczyk
+:revdate: 2021-03-18
+:revnumber: v1.0
+:description: Postgress
+:page-description: {description}
+:toc:
+:toclevels: 7
+:sectnums:
+:sectnumlevels: 7
+:reproducible:
+:listing-caption: Listing
+:autofit-option:
+:source-highlighter: rouge
+:doctype: book
+:chapter-label:
+:allow-uri-read:
+:imagesdir: images/
+
+
+== 
