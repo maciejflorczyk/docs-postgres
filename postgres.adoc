@@ -18,4 +18,105 @@
 :imagesdir: images/
 
 
-== 
+=== Postgresql
+
+Some applications run postgresql clusters.
+
+.Example:
+[source,bash]
+----
+$ kubectl get pods
+NAME                                                READY   STATUS      RESTARTS   AGE
+...
+gitlab-postgresql-0                                 1/1     Running     0          179d
+gitlab-postgresql-1                                 1/1     Running     0          77d
+----
+
+One can log into the postgresql pod
+
+[source,bash]
+----
+kubectl exec -it gitlab-postgresql-1 -- /bin/bash
+----
+
+Usually the postgres data is located in the directory `/home/postgres/pgdata`. You can check the size of postgres data with `df -h` command.
+
+==== Postgres directory structure
+[source,bash]
+----
+home/postgres/pgdata
+└── pgdata
+  └── pgroot
+    └── pg_log
+      └── postgresql-0.csv # some log
+      └── postgresql-1.csv # monday log
+      └── ...
+      └── postgresql-7.csv # sunday log
+    └── data # postgres config
+      └── ...
+      └── pg_wal # Write Ahead Logs for postgres
+        └── ...
+      └── ...
+----
+
+==== Write Ahead Logs
+
+When postgresql databases get out of sync, the `Write Ahead Logs` can grow rapidly. This happens due to the fact, the databases cannot sync, and the data is written into temporary files located in `pg_wal` directory. When that happens you will see a rapid grow in size in one of the postgres instances (usually master).
+
+==== The `patronictl` tool
+
+You can check the status of the database with `patronictl` tool.
+
+[source,bash]
+----
++ Cluster: gitlab-postgresql (6870170890000896068) ---+-----+-----------+
+|        Member       |    Host    |  Role  |  State  |  TL | Lag in MB |
++---------------------+------------+--------+---------+-----+-----------+
+| gitlab-postgresql-0 | 10.0.6.220 |        | running | 151 |     12832 |
+| gitlab-postgresql-1 | 10.0.5.164 | Leader | running | 163 |           |
++---------------------+------------+--------+---------+-----+-----------+
+----
+
+CAUTION: until now, we were only using patronictl tool, while logged to the `Leader`. It should not make any difference, but..
+
+As you can see in the above example, the databases are out of sync. You can tell this by `TL` number: 151 vs 163. Those numbers should be the same. `TL` stands for `timeline` - more info here: https://www.postgresql.org/docs/current/continuous-archiving.html#BACKUP-TIMELINES
+
+There is also `Lag in MB` specified.
+
+To force the reinit of the database, we can use the patronictl tool:
+
+[source,bash]
+----
+# reinit postgres
+$ patronictl reinit <cluster_name> <member_name>
+----
+
+After running the command on the proper member:
+
+[source,bash]
+----
+root@gitlab-postgresql-1:/home/postgres/pgdata/pgroot/data/pg_wal# patronictl reinit gitlab-postgresql gitlab-postgresql-0                                                     + Cluster: gitlab-postgresql (6870170890000896068) ---+-----+-----------+                                                                                                      |        Member       |    Host    |  Role  |  State  |  TL | Lag in MB |
++---------------------+------------+--------+---------+-----+-----------+
+| gitlab-postgresql-0 | 10.0.6.220 |        | running | 151 |     12832 |
+| gitlab-postgresql-1 | 10.0.5.164 | Leader | running | 163 |           |
++---------------------+------------+--------+---------+-----+-----------+
+Are you sure you want to reinitialize members gitlab-postgresql-0? [y/N]: y
+Success: reinitialize for member gitlab-postgresql-0
+----
+
+NOTE: You will be asked if you want to reinitialize the member.
+
+_Three hours later_:
+
+[source,bash]
+----
+root@gitlab-postgresql-1:/home/postgres/pgdata/pgroot/data/pg_wal# patronictl list
++ Cluster: gitlab-postgresql (6870170890000896068) ---+-----+-----------+
+|        Member       |    Host    |  Role  |  State  |  TL | Lag in MB |
++---------------------+------------+--------+---------+-----+-----------+
+| gitlab-postgresql-0 | 10.0.6.220 |        | running | 163 |         0 |
+| gitlab-postgresql-1 | 10.0.5.164 | Leader | running | 163 |           |
++---------------------+------------+--------+---------+-----+-----------+
+----
+
+CAUTION: This does not always work. Zammad is the example, where the postgresql database broke, due to long period of unsync and probably due to some other issues that happened during this time.
